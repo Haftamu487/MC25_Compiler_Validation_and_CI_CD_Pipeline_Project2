@@ -53,3 +53,12 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# Generated compiler files
+mc25
+lex.yy.c
+y.tab.c
+y.tab.h
+output.s
+optimized_output.s
+unoptimized_output.s

@@ -106,6 +106,138 @@ void append_code(const char *fmt, ...)
 
 
 /* ---------------------------------------------------------
+   Peephole optimization
+   --------------------------------------------------------- */
+
+static void peephole_optimize(void)
+{
+    char *optimized_buffer;
+    size_t optimized_size = 0;
+    size_t optimized_capacity = 1024;
+
+    optimized_buffer = malloc(optimized_capacity);
+
+    if (optimized_buffer == NULL)
+    {
+        fprintf(stderr,
+                "Error: Peephole optimization memory allocation failed.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    optimized_buffer[0] = '\0';
+
+    char previous_line[256] = "";
+
+    char *current = code_buffer;
+
+    while (*current != '\0')
+    {
+        char *line_end = strchr(current, '\n');
+
+        size_t line_length;
+
+        if (line_end != NULL)
+            line_length = (size_t)(line_end - current) + 1;
+        else
+            line_length = strlen(current);
+
+        char line[256];
+
+        if (line_length >= sizeof(line))
+        {
+            fprintf(stderr,
+                    "Error: MIPS instruction line is too long.\n");
+            free(optimized_buffer);
+            exit(EXIT_FAILURE);
+        }
+
+        memcpy(line, current, line_length);
+        line[line_length] = '\0';
+
+        /*
+         * Optimization:
+         *
+         *     sw $t0, variable
+         *     lw $t0, variable
+         *
+         * The load is redundant because $t0 already
+         * contains the value that was just stored.
+         */
+
+        if (strcmp(line, "    add $t0, $t0, $zero\n") == 0)
+        {
+            current += line_length;
+            continue;
+        } 
+
+        if (strncmp(line, "    lw $t0, ", 12) == 0)
+        {
+            char variable[128];
+
+            if (sscanf(line,
+                       "    lw $t0, %127s",
+                       variable) == 1)
+            {
+                char expected_store[256];
+
+                snprintf(expected_store,
+                         sizeof(expected_store),
+                         "    sw $t0, %s\n",
+                         variable);
+
+                if (strcmp(previous_line, expected_store) == 0)
+                {
+                    current += line_length;
+                    continue;
+                }
+            }
+        }
+
+        if (optimized_size + line_length + 1 > optimized_capacity)
+        {
+            while (optimized_size + line_length + 1 > optimized_capacity)
+                optimized_capacity *= 2;
+
+            char *temp = realloc(optimized_buffer,
+                                 optimized_capacity);
+
+            if (temp == NULL)
+            {
+                fprintf(stderr,
+                        "Error: Peephole optimization reallocation failed.\n");
+
+                free(optimized_buffer);
+                exit(EXIT_FAILURE);
+            }
+
+            optimized_buffer = temp;
+        }
+
+        memcpy(optimized_buffer + optimized_size,
+               line,
+               line_length);
+
+        optimized_size += line_length;
+        optimized_buffer[optimized_size] = '\0';
+
+        strncpy(previous_line,
+                line,
+                sizeof(previous_line) - 1);
+
+        previous_line[sizeof(previous_line) - 1] = '\0';
+
+        current += line_length;
+    }
+
+    free(code_buffer);
+
+    code_buffer = optimized_buffer;
+    code_size = optimized_size;
+    code_capacity = optimized_capacity;
+}
+
+
+/* ---------------------------------------------------------
    Append to DATA section
    --------------------------------------------------------- */
 
@@ -413,6 +545,7 @@ static void generate_statement(ASTNode *node)
 
             generate_expression(node->left);
 
+            append_code("    add $t0, $t0, $zero\n");
             append_code("    move $a0, $t0\n");
 
             /* MARS syscall 1: print integer */
@@ -535,6 +668,7 @@ void generate_return_expression(ASTNode *node)
 
     generate_expression(node);
 
+    
     append_code("    move $a0, $t0\n");
 
     /* MARS syscall 1: print integer */
@@ -573,6 +707,9 @@ void generate_assignment(const char *name, int value)
 
 void write_output(const char *filename)
 {
+
+    peephole_optimize();
+
     FILE *file = fopen(filename, "w");
 
     if (file == NULL)

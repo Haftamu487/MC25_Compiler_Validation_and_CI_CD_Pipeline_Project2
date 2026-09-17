@@ -15,7 +15,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y flex bison gcc default-jre
+          sudo apt-get install -y flex bison gcc libfl-dev default-jre
 
       - name: Run compiler tests
         run: make test
